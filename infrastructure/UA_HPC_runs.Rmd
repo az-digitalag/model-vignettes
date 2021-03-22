@@ -1,0 +1,66 @@
+---
+title: "Run PEcAn Models on UA HPC"
+output: github_document
+urlcolor: blue
+---
+
+For models that require a lot of ensemble runs or runs across different locations, the model runs themselves should be done with the greater resources of the [UA HPC](https://it.arizona.edu/service/high-performance-computing). 
+
+
+Do PEcAn workflow from beginning up through writing model-specific configuration files on local server in RStudio, then the model runs on HPC, then the remainder back on local server. The [PEcAn remote package](https://github.com/PecanProject/pecan/tree/develop/base/remote) has most of the infrastructure to transfer files back and forth. 
+
+**Using Welsch as local server**
+
+1. Modify pecan.xml
+    - ED2 example
+    - Path to binary on HPC
+    - Host block for UA HPC (edit name if using an alias in ssh config, add NetID username, specify ncpus, mem, and walltime for size of run)
+    - outdir and dbfiles paths should still be local 
+
+```
+  <host>
+      <name>login.ocelote.hpc.arizona.edu</name>
+      <user>hpc_username_here</user>
+      <qsub>qsub -N @NAME@ -W group_list=dlebauer -q standard -l select=1:ncpus=1:mem=6gb -l walltime=4:0:0 -o @STDOUT@ -e @STDERR@ -S /bin/bash</qsub>
+      <qsub.jobid>([0-9]+).head1.cm.cluster</qsub.jobid>
+      <qstat>'qstat -J @JOBID@ &amp;> /dev/null || echo DONE'</qstat>
+  </host>
+```
+
+2. Set up tunnel to HPC
+    - Generate HPC and ocelote hosts in ssh configuration file `~/.ssh/config` by running `sshkey.sh` from `pecan/scripts` in Terminal and entering correct host name each time
+    - Manually edit `~/.ssh/config` ocelote portion to the following, making sure to keep correct `User`:
+
+```
+Host login.ocelote.hpc.arizona.edu
+  HostName login.ocelote.hpc.arizona.edu
+  User NetID
+  IdentityFile ~/.ssh/hpc.arizona.edu
+  ServerAliveInterval 300
+  ControlMaster auto 
+  ControlPath /tmp/%r@%h:%p
+  ProxyCommand ssh -xaqW%h:22 hpc.arizona.edu
+```
+
+    - Adding public key to HPC; shown by .pub files in `~/.ssh/` 
+    - sftp?
+
+3. Copy files to HPC
+    - What of this does Pecan remote do automatically?
+    - Get copy of Pecan repo: `git clone https://github.com/PecanProject/pecan.git` 
+    - Create copy of shell script `ed2_2.2.0_singularity.sh` to run model binary
+    - Create copy of model binary `pecan-model-ed2.sif` (may have to modify path to this in shell script)
+    - Transfer data files? 
+
+4. (optional) From serial to parallel runs
+    - Compile modellauncher on HPC
+        1. `module load openmpi`
+        2. Run `make` from `pecan/contrib/modellauncher`
+        3. May return some warnings, check for `modellauncher/` folder
+    - 
+
+
+
+**Using OpenStack as local server**
+
+TBD
