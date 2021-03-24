@@ -8,7 +8,7 @@ C4_Collatz <- function(fileID){# input is ID column from the experiments datafra
   library(tibble)
   
   # Read in data
-  dat <- read.csv(paste0("../../sentinel-detection/data/cleaned_data/ACi/A_Ci_curves_", fileID, ".csv"))
+  dat <- read.csv(paste0("~/sentinel-detection/data/cleaned_data/ACi/A_Ci_curves_", fileID, ".csv"))
   
   # JAGS code
   my.model.jags <- "
@@ -59,10 +59,10 @@ C4_Collatz <- function(fileID){# input is ID column from the experiments datafra
   }
   
   # Save out diagnostic plots
-  if(dir.exists("../../sentinel-detection/data/derived_data/ACi/diagnostic/") == F){
-    dir.create("../../sentinel-detection/data/derived_data/ACi/diagnostic/", recursive = TRUE)
+  if(dir.exists("~/sentinel-detection/data/derived_data/ACi/diagnostic/") == F){
+    dir.create("~/sentinel-detection/data/derived_data/ACi/diagnostic/", recursive = TRUE)
   }
-  loc <- paste0("../../sentinel-detection/data/derived_data/ACi/diagnostic/")
+  loc <- paste0("~/sentinel-detection/data/derived_data/ACi/diagnostic/")
   
   # Gelman plots
   for(s in rep.list){
@@ -109,5 +109,5 @@ C4_Collatz <- function(fileID){# input is ID column from the experiments datafra
   out$Date.run <- rep(as.Date(Sys.time()), nrow(out))
   out2 <- subset(out, select = c(ID, rep, trait, Value, SE, SD, Date.run))
 
-  write.csv(out2, file = paste0("../../sentinel-detection/data/derived_data/ACi/", fileID, "_parameters.csv"), row.names = F)
+  write.csv(out2, file = paste0("~/sentinel-detection/data/derived_data/ACi/", fileID, "_parameters.csv"), row.names = F)
 }

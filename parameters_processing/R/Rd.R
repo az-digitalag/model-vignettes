@@ -5,13 +5,13 @@
 Rd <- function (fileID){# input is ID column from the experiments dataframe
   
   # Read in data
-  df <- read.csv(paste0("../../sentinel-detection/data/cleaned_data/Rd/Rd_", fileID, ".csv"))
+  df <- read.csv(paste0("~/sentinel-detection/data/cleaned_data/Rd/Rd_", fileID, ".csv"))
 
   # Location of output files
-  if(dir.exists("../../sentinel-detection/data/derived_data/Rd/") == F){
-    dir.create("../../sentinel-detection/data/derived_data/Rd/", recursive = TRUE)
+  if(dir.exists("~/sentinel-detection/data/derived_data/Rd/") == F){
+    dir.create("~/sentinel-detection/data/derived_data/Rd/", recursive = TRUE)
   }
-  loc <- paste0("../../sentinel-detection/data/derived_data/Rd/")
+  loc <- paste0("~/sentinel-detection/data/derived_data/Rd/")
   
   # Summarize to population level mean and SE
   out <- data.frame(ID = rep(fileID, 1),

@@ -3,6 +3,8 @@ title: "Parameter estimation pipeline from cleaned Licor data"
 author: "Jessica Guo, Tonantzin Tarin"
 output: github_document
 urlcolor: blue
+editor_options: 
+  chunk_output_type: console
 ---
 
 Load necessary packages and functions. 
@@ -12,6 +14,7 @@ source("R/C4_Collatz.R")
 source("R/LRC.R")
 source("R/Gs2.R")# Best option determined from 'compare_Gs_methods.Rmd'
 source("R/Rd.R")
+# devtools::install("~/plantecophys")
 ```
 
 
@@ -46,7 +49,7 @@ for(i in 1:length(aq_ID)){
 }
 ```
 
-Next, run the Gs2.R function on both the ACi and AQ data to obtain the stomatal sensitivity (g1BB & g1M) and cuticular conductance (g0BB & g0M, mol H2O m^-2 s^-1) across the plant replicates. Here, the data from both types of curves used across the entire range of CO2 and PAR conditions excepting extremely low values (PAR < LCPT and CO2 < 45 ppm)
+Next, run the Gs2.R function on both the ACi and AQ data to obtain the stomatal sensitivity (g1BB & g1M & g1L) and cuticular conductance (g0BB & g0M & g0L, mol H2O m^-2 s^-1) across the plant replicates. Here, the data from both types of curves used across the entire range of CO2 and PAR conditions excepting extremely low values (PAR < LCPT and CO2 < 45 ppm)
 ```{r}
 ID <- expDF$ID[which(expDF$Date > max(params$Date))]
 for(i in 1:length(ID)){
@@ -70,10 +73,10 @@ Finally, once all three or four functions above are run and output parameter fil
 params <- data.frame()
 
 # Create vector of filenames
-fnames <- c(paste0("../../sentinel-detection/data/derived_data/ACi/", list.files("../../sentinel-detection/data/derived_data/ACi", pattern = "csv")),
-            paste0("../../sentinel-detection/data/derived_data/AQ/", list.files("../../sentinel-detection/data/derived_data/AQ", pattern = "csv")), 
-            paste0("../../sentinel-detection/data/derived_data/stomatal/", list.files("../../sentinel-detection/data/derived_data/stomatal", pattern = "csv")),
-            paste0("../../sentinel-detection/data/derived_data/Rd/", list.files("../../sentinel-detection/data/derived_data/Rd", pattern = "csv")))
+fnames <- c(paste0("~/sentinel-detection/data/derived_data/ACi/", list.files("~/sentinel-detection/data/derived_data/ACi", pattern = "csv")),
+            paste0("~/sentinel-detection/data/derived_data/AQ/", list.files("~/sentinel-detection/data/derived_data/AQ", pattern = "csv")), 
+            paste0("~/sentinel-detection/data/derived_data/stomatal/", list.files("~/sentinel-detection/data/derived_data/stomatal", pattern = "csv")),
+            paste0("~/sentinel-detection/data/derived_data/Rd/", list.files("~/sentinel-detection/data/derived_data/Rd", pattern = "csv")))
 
 
 for(i in 1:length(fnames)){
@@ -84,6 +87,6 @@ for(i in 1:length(fnames)){
 
 # Combine parameters with experiment metadata
 params2 <- left_join(params, expDF, by = "ID")
-write.csv(params2, file = "../../sentinel-detection/data/derived_data/parameters_data.csv", row.names = F)
+write.csv(params2, file = "~/sentinel-detection/data/derived_data/parameters_data.csv", row.names = F)
 ```
 

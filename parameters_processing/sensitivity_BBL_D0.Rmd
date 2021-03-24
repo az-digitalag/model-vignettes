@@ -1,0 +1,125 @@
+---
+title: "Testing sensitivity of BBL stomatal parameters to "
+author: "Jessica Guo"
+output: github_document
+urlcolor: blue
+editor_options: 
+chunk_output_type: console
+---
+
+Load necessary packages and functions. 
+```{r}
+library(plantecophys)
+library(ggplot2)
+source("R/Gs2.R")
+```
+
+
+The ED2 ecosystem model uses the Ball-Berry-Leuning or BBL stomatal model (Leuning 1995), which incorporates VPD rather than RH. However, this model has 3 parameters (slope, intercept, and D0) that can be difficult to fit (slope and D0 are negatively correlated), especially if there is little or no variation in VPD in the gas exchange data. ED2 developers recommend setting D0 to 1 kPa for temperate trees and 1.6 kPa for tropical trees based on model performance, so it is clear that these stomatal parameters have significant downstream effects
+
+The DARPA-Sentinel project grows Setaria genotypes in primarily controlled chamber conditions and measures gas exchagne with a Li-cor 6800, wherein the VPD is set to 1.5 kPa. Therefore, there is almot no variation in VPD and the full BBL model cannot be parameterized. Setaria is a C4 grass rather than tree, so the recommended values of D0 may not be applicable. 
+
+Therefore, this script will fit the BBL model for three sets of gas exchange data (chamber, greenhouse, outside) across a range of D0 values, from 0.35 kPa (Leuning 1995) to 1.67 kPa (Dewar 2002), paying special attention to the endpoints, 1.0, and 1.5. 
+
+We will use a local version of 'plantecophys' in which D0 can be set to a fixed value. 
+
+Read in experiment metadata. 
+```{r}
+expDF <- read.csv("~/sentinel-detection/data/cleaned_data/experiments.csv",
+                  colClasses = c("character", "numeric", rep("character",2), rep("numeric",2)))
+```
+
+Select IDs of data from 3 environments
+```{r}
+ID <- c("20190312", expDF$ID[expDF$Treatment %in% c("greenhouse", "outdoor_JollyG")])
+D0 <- seq(0.35, 1.65, by = 0.05)
+
+out <- data.frame()
+
+for(i in 1:length(ID)){
+  fileID <- ID[i]
+# Read in data
+  fileNames <- dir("~/sentinel-detection/data/cleaned_data/", pattern = as.character(fileID), recursive = T)
+  
+  # Remove if Rd files present (currently, Rd file does not include raw data
+  ind <- which(substr(fileNames, 1, 2) == "Rd")
+  if(length(ind) > 0){
+    fileNames <- fileNames[-1*ind]
+  }
+  
+  df <- data.frame()
+  for(i in 1:length(fileNames)){
+    # Read in csv
+    temp <- read.csv(paste0("~/sentinel-detection/data/cleaned_data/", fileNames[i]))
+    
+    # Select relevant columns
+    temp2 <- subset(temp, select = c(species, rep, obs, time, date, hhmmss, 
+                                     CO2_s, Qin, A, gsw, VPDleaf, RHcham, Ca))
+    
+    # Filter ACi data for CO2 values > 45 ppm
+    if(substring(fileNames[i], 1, 2) == "AC"){
+      temp3 <- subset(temp2, CO2_s >= 45)
+    }
+    
+    # Filter AQ data for Qin >  LCPT (estimated)
+    if(substring(fileNames[i], 1, 2) == "AQ"){
+      lparams <- read.csv(paste0("~/sentinel-detection/data/derived_data/AQ/", 
+                                 dir("~/sentinel-detection/data/derived_data/AQ/", 
+                                     pattern = as.character(fileID))))
+      
+      temp3 <- rbind.data.frame(
+        subset(temp2, rep == "plant_1" & Qin >= lparams$Value[lparams$trait == "LCPT" & lparams$rep == "plant_1"]),
+        subset(temp2, rep == "plant_2" & Qin >= lparams$Value[lparams$trait == "LCPT" & lparams$rep == "plant_2"]),
+        subset(temp2, rep == "plant_3" & Qin >= lparams$Value[lparams$trait == "LCPT" & lparams$rep == "plant_3"]))
+    }
+    
+    # Combine into single dataframe of gas exchange data
+    df <- rbind.data.frame(df, temp3)
+  }
+  
+   # Split by plant
+  dflist <- split(df, df$rep)
+
+  # Loop through each plant replicate
+  for(i in 1:length(dflist)){
+    for(j in 1:length(D0)){
+    # Fit the Ball-Berry-Leuning (1995) model    
+    gsfit3  <- fitBB(dflist[[i]], 
+                     varnames = list(ALEAF = "A", GS = "gsw", VPD = "VPDleaf", Ca ="Ca", RH ="RHcham"),
+                     gsmodel = c("BBLeuning"), 
+                     fitg0 = TRUE, 
+                     D0 = D0[j]) 
+    g1L     <- summary(gsfit3$fit)$parameters[1]				
+    g0L     <- summary(gsfit3$fit)$parameters[2]	
+    g1L_se  <- summary(gsfit3$fit)$parameters[1,2] 
+    g0L_se  <- summary(gsfit3$fit)$parameters[2,2] 
+    
+    temp <- data.frame(ID = rep(fileID, 2),
+                       rep = rep(names(dflist)[i], 2),
+                       D0 = rep(D0[j], 2),
+                       trait = c("g0L", "g1L"),
+                       Value = c(g0L, g1L),
+                       SE = c(g0L_se, g1L_se),
+                       SD = rep(NA, 2),
+                       Date.run = rep(as.Date(Sys.time()), 2))
+    
+    out <- rbind.data.frame(out, temp)
+    }
+  }
+}
+```
+
+
+Create plots to compare the effect of D0 on g0L and g1L in each of the three environments. 
+```{r}
+out <- out %>%
+  mutate(site = case_when(ID == "20190312" ~ "chamber", 
+                          ID == "20200304" ~ "greenhouse", 
+                          ID == "20200905_outdoor_JollyG" ~ "outdoor"))
+ggplot(out, aes(x = D0, y = Value, col = rep)) +
+  geom_vline(xintercept = 1.5, lty = 2) +
+  geom_point() +
+  facet_grid(rows = vars(site), cols = vars(trait)) +
+  theme_bw()
+  
+```

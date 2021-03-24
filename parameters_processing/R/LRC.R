@@ -3,7 +3,7 @@
 LRC <- function(fileID){# input is ID column from the experiments dataframe
   
   # Read in data
-  df <- read.csv(paste0("../../sentinel-detection/data/cleaned_data/AQ/AQin_curves_", fileID, ".csv"))
+  df <- read.csv(paste0("~/sentinel-detection/data/cleaned_data/AQ/AQin_curves_", fileID, ".csv"))
   
  
   
@@ -14,10 +14,10 @@ LRC <- function(fileID){# input is ID column from the experiments dataframe
   head <- c("Plant 1", "Plant 2", "Plant 3")        
 
   # Location of output files
-  if(dir.exists("../../sentinel-detection/data/derived_data/AQ/diagnostic") == F){
-    dir.create("../../sentinel-detection/data/derived_data/AQ/diagnostic", recursive = TRUE)
+  if(dir.exists("~/sentinel-detection/data/derived_data/AQ/diagnostic") == F){
+    dir.create("~/sentinel-detection/data/derived_data/AQ/diagnostic", recursive = TRUE)
   }
-  loc <- paste0("../../sentinel-detection/data/derived_data/AQ/")
+  loc <- paste0("~/sentinel-detection/data/derived_data/AQ/")
   
   for (i in 1:length(LIS)) {
       PARlrc<-LIS[[i]]$Qin #Qin (aka PPFD or PAR)
