@@ -1,0 +1,409 @@
+---
+title: "How does duration of decreased stomatal slope affect transpiration and biomass?"
+author: "Author: Jessica Guo"
+editor_options: 
+  chunk_output_type: console
+---
+
+# Overview
+Recent data from the Gehan lab at Donald Danforth Plant Center demonstrated that in the psent-3 line, application of mandipropamid reduced leaf temperatures by an average of 0.18 °C for 48 hours. However, the Zhang lab demonstrated that Amax did not differ significantly between psent-3 and the wild type ME-034. Therefore, we conduct a sensitivity experiment on the duration of reduced stomatal conductance on Setaria biomass and transpiration, using the same set of physiological parameters as ME-034. 
+
+Here, we wrote a function 'BioCro_restart()' which runs BioCro in 3 pieces: 1) original parameter set, 2) stomatal slope and cuticular conductance reduced by a proportion, and 3) original parameter set. The final biomass of one run is retained as the initial biomass of the subsequent run, yielding smooth accumulation of biomass across the experiment. 
+
+```{r}
+library(BioCro)
+library(PEcAn.BIOCRO)
+library(dplyr)
+library(udunits2)
+library(ggplot2)
+library(cowplot)
+library(RColorBrewer)
+source("Gs_sensitivity_inputs/BioCro_restart.R")
+```
+
+
+First, we will use hourly weather data from 2 locations, St. Louis (MO) and Pueblo (CO) extracted and used previously in 'Gs_testing.Rmd' and 'regional_runs.Rmd'. BioCro will be run for 100 days, with reduced stomatal parameters by 50% starting on day 20 for a duration of 1 to 11 days. Start run on April 1, 2010. 
+```{r}
+loc.coords <- data.frame(site = c("St. Louis, MO", "Pueblo, CO"),
+                         lat = c(38.625, 38.375), 
+                         lon = c(-90.125, -104.625))
+
+duration <- 0:11
+
+output.list <- list()
+controls.list <- list()
+for(loc in 1:nrow(loc.coords)) {
+  # Add met data
+  biocro_met_path <- paste0("/data/dbfiles/biocro_met/stlew-",
+                            loc.coords$lat[loc], "-", loc.coords$lon[loc], ".2010.csv")
+  met <- read.csv(biocro_met_path) %>%
+    filter(year == 2010 & doy >= 91)
+  
+  # Add biocro xml
+  config_path <- paste0("Gs_sensitivity_inputs/config_wt.xml")
+  config <- read.biocro.config(config_path)
+  
+  # List of output
+  output <- list()
+  for(i in 1:length(duration)) {
+    single <- BioCro_restart(met = met,
+                      config = config, 
+                      duration = duration[i],
+                      start_day = 60,
+                      end_day = 100,
+                      prop = 0.5)
+    ind <- as.vector(which(lapply(single, length) == (24*100)))
+    output[[i]] <- do.call(cbind.data.frame, single[ind]) %>%
+      mutate(duration = duration[i]) %>%
+      relocate(duration)
+  }
+  
+  # Combine across durations
+  output.list[[loc]] <- do.call(rbind.data.frame, output) %>%
+    mutate(location = loc.coords$site[loc]) %>%
+    relocate(location)
+  
+  # Run control using BioGro directly
+  control1 <- BioCro::BioGro(met, day1 = 1, dayn = 100,
+                             iRhizome = config$pft$iPlantControl$iRhizome,
+                             iLeaf = config$pft$iPlantControl$iLeaf,
+                             iStem = config$pft$iPlantControl$iStem,
+                             iRoot = config$pft$iPlantControl$iRoot,
+                             soilControl = l2n(config$pft$soilControl),
+                             canopyControl = l2n(config$pft$canopyControl),
+                             phenoControl = l2n(config$pft$phenoParms),
+                             seneControl = l2n(config$pft$seneControl),
+                             photoControl = l2n(config$pft$photoParms))
+  control2 <- BioCro_restart(met = met,
+                             config = config, 
+                             duration = 0,
+                             start_day = 20,
+                             end_day = 100,
+                             prop = 0.5)
+  ind <- as.vector(which(lapply(control1, length) == (24*100)))
+  
+  # Add both kinds of controls
+  ver1 <-  do.call(cbind.data.frame, control1[ind]) %>%
+    mutate(location = loc.coords$site[loc],
+           type = "BioGro") %>%
+    relocate(location, type)
+  
+  ver2 <- do.call(cbind.data.frame, control2[ind]) %>%
+    mutate(location = loc.coords$site[loc],
+           type = "restart") %>%
+    relocate(location, type)
+  
+  controls.list[[loc]] <- rbind.data.frame(ver1, ver2)
+  
+  print(paste0("Finished with ", loc.coords$site[loc]))
+}
+```
+
+Check that the control is the same using the restart function and the base BioGro function. 
+```{r}
+control.df <- do.call(rbind.data.frame, controls.list) %>%
+  mutate(biomass_kg_m2 = ud.convert(Leaf + Stem + Root, "Mg/ha", "kg/m2"),
+         stem_kg_m2 = ud.convert(Stem, "Mg/ha", "kg/m2"),
+         leaf_kg_m2 = ud.convert(Leaf, "Mg/ha", "kg/m2"),
+         root_kg_m2 = ud.convert(Root, "Mg/ha", "kg/m2"),
+         SLA_m2_kg = LAI / leaf_kg_m2,
+         trans_kg_m2_hr = ud.convert(CanopyTrans, "Mg/ha/hr", "kg/m2/hr"),
+         npp_g_m2_hr = ud.convert(CanopyAssim, "Mg/ha/hr", "g/m2/hr"),
+         T.ET = CanopyTrans / (CanopyTrans + SoilEvaporation),
+         wue = (CanopyAssim * 1000) / CanopyTrans) %>%
+  group_by(location, DayofYear) %>%
+  summarize(type = unique(type),
+            dailyBiomass = mean(biomass_kg_m2),
+            dailyT = sum(trans_kg_m2_hr),
+            dailyNPP = sum(npp_g_m2_hr),
+            LAI = mean(LAI),
+            dailyStem = mean(stem_kg_m2),
+            dailyLeaf = mean(leaf_kg_m2),
+            dailyRoot = mean(root_kg_m2),
+            SLA = mean(SLA_m2_kg),
+            TET = mean(T.ET),
+            WUE = mean(wue))
+control.df$Date <- rep(rep(seq(as.Date("2010-04-01"), as.Date("2010-07-09"), by = "day"), each = 2), 2)
+
+# Plot NPP and Biomass
+ggplot() +
+  geom_point(data = control.df, 
+             aes(x = Date, y = dailyNPP, color = type)) +
+  scale_y_continuous(expression(paste("NPP (g ", m^-2, " ", day^-1, ")"))) +
+  scale_color_manual(values = c("forestgreen", "darkseagreen")) +
+  facet_wrap(~location)+
+  theme_cowplot()
+
+ggplot() +
+  geom_point(data = control.df, 
+             aes(x = Date, y = dailyBiomass, color = type)) +
+  scale_y_continuous(expression(paste("Biomass (kg ", m^-2, ")"))) +
+  scale_color_manual(values = c("forestgreen", "darkseagreen")) +
+  facet_wrap(~location)+
+  theme_cowplot()
+```
+
+Next, collate output and calculate daily means/sums of biomass and transpiration. Note that Canopy Assim and CanopyTrans are per unit ground area (can multiply by LAI to obtain per unit leaf area). The output is now a single dataframe object, hourly timeseries for 100 days across 2 locations and 11 durations. The control instance of no change in parameters is used as the baseline to calculate proportional changes. 
+
+```{r}
+output.df <- do.call(rbind.data.frame, output.list) %>%
+  mutate(biomass_kg_m2 = ud.convert(Leaf + Stem + Root, "Mg/ha", "kg/m2"),
+         stem_kg_m2 = ud.convert(Stem, "Mg/ha", "kg/m2"),
+         leaf_kg_m2 = ud.convert(Leaf, "Mg/ha", "kg/m2"),
+         root_kg_m2 = ud.convert(Root, "Mg/ha", "kg/m2"),
+         SLA_m2_kg = LAI / leaf_kg_m2,
+         trans_kg_m2_hr = ud.convert(CanopyTrans, "Mg/ha/hr", "kg/m2/hr"),
+         npp_g_m2_hr = ud.convert(CanopyAssim, "Mg/ha/hr", "g/m2/hr"),
+         T.ET = CanopyTrans / (CanopyTrans + SoilEvaporation),
+         wue = (CanopyAssim * 1000) / CanopyTrans) %>%
+  group_by(location, duration, DayofYear) %>%
+  summarize(dailyBiomass = mean(biomass_kg_m2),
+            dailyT = sum(trans_kg_m2_hr),
+            dailyNPP = sum(npp_g_m2_hr),
+            LAI = mean(LAI),
+            dailyStem = mean(stem_kg_m2),
+            dailyLeaf = mean(leaf_kg_m2),
+            dailyRoot = mean(root_kg_m2),
+            SLA = mean(SLA_m2_kg),
+            TET = mean(T.ET),
+            WUE = mean(wue)) %>%
+  mutate(Date = seq(as.Date("2010-04-01"), as.Date("2010-07-09"), by = "day"))
+
+control <- output.df %>%
+  ungroup() %>%
+  filter(duration == 0) %>%
+  rename(controlBiomass = dailyBiomass,
+         controlT = dailyT) %>%
+  dplyr::select(location, DayofYear, controlBiomass, controlT)
+
+biomass_comp <- left_join(output.df %>% filter(duration != 0), control,
+                          by = c("location", "DayofYear")) %>%
+  mutate(biomassProp = dailyBiomass / controlBiomass,
+         tProp = dailyT / controlT)
+biomass_comp$Duration <- factor(biomass_comp$duration, levels = 0:11)
+```
+
+One way to visualize this is biomass at the end of 100 days as a proportion of the control. First, visualize as a heatmap.
+```{r}
+fig_biomass <- ggplot(biomass_comp, aes(x = Date)) +
+  geom_tile(aes(y = duration, fill = biomassProp)) +
+  facet_wrap(~location) +
+  scale_fill_gradient2(low = "goldenrod", mid = "white", 
+                       high = "forestgreen", midpoint = 1) +
+  scale_y_continuous("Days reduced") +
+  theme_cowplot() +
+  theme(strip.background =element_blank(),
+        legend.title = element_blank(),
+        plot.title = element_text(size = 12),
+        axis.title.x = element_blank()) +
+  labs(title = "Biomass proportion")
+
+fig_trans <- ggplot(biomass_comp, aes(x = Date)) +
+  geom_tile(aes(y = duration, fill = tProp)) +
+  facet_wrap(~location) +
+  scale_fill_gradient2(low = "pink", mid = "white", 
+                       high = "blueviolet", midpoint = 1) +
+  scale_y_continuous("Days reduced") +
+  theme_cowplot() +
+  theme(strip.background =element_blank(),
+        legend.title = element_blank(),
+        plot.title = element_text(size = 12),
+        axis.title.x = element_blank()) +
+  labs(title = "Transpiration proportion")
+
+plot_grid(fig_biomass, fig_trans, ncol = 1)
+```
+
+Another way is by plotting the biomass and transpiration proportions as a timeseries. 
+```{r}
+cols <- brewer.pal(11, "Spectral")
+
+# add dataframe for rug 
+ticks <- data.frame(Duration = as.factor(1:11),
+                    Date = seq(as.Date("2010-05-31"), as.Date("2010-06-10"), by = "day"))
+
+fig_b_ts <- ggplot() +
+  geom_vline(xintercept = as.Date("2010-05-30"), alpha = 0.5) +
+  geom_rug(data = ticks, aes(x = Date, color = Duration)) +
+  geom_line(data = biomass_comp, 
+             aes(x = Date, y = biomassProp, color = Duration)) +
+  scale_y_continuous("Biomass response", breaks = seq(0.8, 1.2, 0.1), limits = c(0.7, 1.3)) +
+  scale_x_date(limits = c(as.Date("2010-05-15"), as.Date("2010-07-09"))) +
+  scale_color_manual(values = cols) +
+  facet_wrap(~location)+
+  theme_cowplot() +
+  theme(axis.title.x = element_blank(),
+        # legend.position = c(0.05, 0.5),
+        # legend.title = element_blank(),
+        # legend.text = element_text(size = 10),
+        # legend.key.size = unit(0.3, "cm"),
+        strip.background = element_blank()) +
+  guides(color = FALSE)
+fig_b_ts
+
+fig_t_ts <- ggplot() +
+  geom_vline(xintercept = as.Date("2010-05-30"), alpha = 0.5) +
+  geom_rug(data = ticks, aes(x = Date, color = Duration)) +
+  geom_line(data = biomass_comp, 
+             aes(x = Date, y = tProp, color = Duration)) +
+  scale_y_continuous("T response", breaks = seq(0.8, 1.2, 0.1), limits = c(0.7, 1.3)) +
+  scale_x_date(limits = c(as.Date("2010-05-15"), as.Date("2010-07-09"))) +
+  scale_color_manual(values = cols) +
+  facet_wrap(~location)+
+  theme_cowplot() +
+  theme(axis.title.x = element_blank(),
+        strip.background = element_blank()) +
+  guides(color = FALSE)
+fig_t_ts
+plot_grid(fig_b_ts, fig_t_ts, ncol = 1)
+```
+
+Plot timeseries of biomass and transpiration in usual units. 
+```{r}
+cols <- brewer.pal(11, "Spectral")
+fig_b_ts <- ggplot() +
+  geom_vline(xintercept = as.Date("2010-05-30")) +
+  geom_vline(xintercept = as.Date("2010-06-10"),  lty = 2, color = "gray") +
+  geom_line(data = biomass_comp, 
+            aes(x = Date, y = dailyBiomass, color = Duration)) +
+  geom_line(data = output.df[output.df$duration == 0,], 
+            aes(x = Date, y = dailyBiomass),
+            color = "black") +
+  scale_y_continuous(expression(paste("Biomass (kg ", m^-2, ")"))) +
+  scale_x_date(limits = c(as.Date("2010-05-15"), as.Date("2010-07-09"))) +
+  scale_color_manual(values = cols) +
+  facet_wrap(~location, scale = "free_y")+
+  theme_cowplot() +
+  theme(axis.title.x = element_blank(),
+        strip.background = element_blank()) +
+  guides(color = FALSE)
+
+fig_t_ts <- ggplot() +
+  geom_vline(xintercept = as.Date("2010-05-30")) +
+  geom_vline(xintercept = as.Date("2010-06-10"),  lty = 2, color = "gray") +
+  geom_line(data = biomass_comp, 
+            aes(x = Date, y = dailyT, color = Duration)) +
+  geom_line(data = output.df[output.df$duration == 0,], 
+            aes(x = Date, y = dailyT),
+            color = "black") +
+  scale_y_continuous(expression(paste("T (kg ", m^-2, " ", day^-1, ")"))) +
+  scale_x_date(limits = c(as.Date("2010-05-15"), as.Date("2010-07-09"))) +
+  scale_color_manual(values = cols) +
+  facet_wrap(~location, scale = "free_y")+
+  theme_cowplot() +
+  theme(axis.title.x = element_blank(),
+        strip.background = element_blank()) +
+  guides(color = FALSE)
+
+plot_grid(fig_b_ts, fig_t_ts, ncol = 1)
+```
+
+Visualize biomass broken down by leaf, stem, and root compartments, as well as SLA. 
+
+```{r}
+fig_leaf_ts <- ggplot() +
+  geom_point(data = biomass_comp, 
+             aes(x = Date, y = dailyLeaf, color = Duration)) +
+  geom_point(data = output.df[output.df$duration == 0,], 
+             aes(x = Date, y = dailyLeaf),
+             color = "black") +
+  scale_y_continuous(expression(paste("Leaf (kg ", m^-2, ")"))) +
+  scale_color_manual(values = cols) +
+  facet_wrap(~location, scale = "free_y")+
+  theme_cowplot() +
+  guides(color = FALSE)
+
+fig_stem_ts <- ggplot() +
+  geom_point(data = biomass_comp, 
+             aes(x = Date, y = dailyStem, color = Duration)) +
+  geom_point(data = output.df[output.df$duration == 0,], 
+             aes(x = Date, y = dailyStem),
+             color = "black") +
+  scale_y_continuous(expression(paste("Stem (kg ", m^-2, ")"))) +
+  scale_color_manual(values = cols) +
+  facet_wrap(~location, scale = "free_y")+
+  theme_cowplot() +
+  guides(color = FALSE)
+
+fig_root_ts <- ggplot() +
+  geom_point(data = biomass_comp, 
+             aes(x = Date, y = dailyRoot, color = Duration)) +
+  geom_point(data = output.df[output.df$duration == 0,], 
+             aes(x = Date, y = dailyRoot),
+             color = "black") +
+  scale_y_continuous(expression(paste("Root (kg ", m^-2, ")"))) +
+  scale_color_manual(values = cols) +
+  facet_wrap(~location, scale = "free_y")+
+  theme_cowplot() +
+  guides(color = FALSE)
+
+plot_grid(fig_leaf_ts, fig_stem_ts, fig_root_ts, ncol = 1)
+```
+
+Visualize daily NPP and ratios WUE and T:ET over time. 
+```{r}
+fig_npp_ts <- ggplot() +
+  geom_point(data = biomass_comp, 
+             aes(x = Date, y = dailyNPP, color = Duration)) +
+  geom_point(data = output.df[output.df$duration == 0,], 
+             aes(x = Date, y = dailyNPP),
+             color = "black") +
+  scale_y_continuous(expression(paste("NPP (g ", m^-2, " ", day^-1, ")"))) +
+  scale_color_manual(values = cols) +
+  facet_wrap(~location, scale = "free_y")+
+  theme_cowplot() +
+  guides(color = FALSE)
+
+fig_wue_ts <- ggplot() +
+  geom_point(data = biomass_comp, 
+             aes(x = Date, y = WUE, color = Duration)) +
+  geom_point(data = output.df[output.df$duration == 0,], 
+             aes(x = Date, y = WUE),
+             color = "black") +
+  scale_y_continuous(expression(paste("WUE (g ", kg^-1, ")"))) +
+  scale_color_manual(values = cols) +
+  facet_wrap(~location, scale = "free_y")+
+  theme_cowplot() +
+  guides(color = FALSE)
+
+fig_tet_ts <- ggplot() +
+  geom_point(data = biomass_comp, 
+             aes(x = Date, y = TET, color = Duration)) +
+  geom_point(data = output.df[output.df$duration == 0,], 
+             aes(x = Date, y = TET),
+             color = "black") +
+  scale_y_continuous("T/ET") +
+  scale_color_manual(values = cols) +
+  facet_wrap(~location, scale = "free_y")+
+  theme_cowplot() +
+  guides(color = FALSE)
+
+plot_grid(fig_npp_ts, fig_wue_ts, fig_tet_ts, ncol = 1)
+```
+
+
+GDD, or growing degree days, controls the timing of phenophase transition. Calculate and plot what it looks like starting onb June 1. 
+```{r}
+gdd.list <- list()
+for(loc in 1:nrow(loc.coords)) {
+  # Add met data
+  biocro_met_path <- paste0("/data/dbfiles/biocro_met/stlew-",
+                            loc.coords$lat[loc], "-", loc.coords$lon[loc], ".2010.csv")
+  gdd.list[[loc]] <- read.csv(biocro_met_path) %>%
+    filter(year == 2010 & doy >= 91 & doy < 191) %>%
+    group_by(doy) %>%
+    summarize(year = unique(year),
+              Tmean = mean(Temp)) %>%
+    mutate(gdd = ifelse(Tmean > 10, Tmean - 10, 0),
+           cumgdd = cumsum(gdd),
+           site = loc.coords$site[loc])
+}
+
+gdd.df <- do.call(rbind.data.frame, gdd.list) %>%
+  mutate(date = rep(seq(as.Date("2010-04-01"), as.Date("2010-07-09"), by = "day"), 2))
+
+ggplot(gdd.df, aes(x = date, y = cumgdd)) +
+  geom_point() +
+  theme_bw() +
+  facet_wrap(~site)
+```
