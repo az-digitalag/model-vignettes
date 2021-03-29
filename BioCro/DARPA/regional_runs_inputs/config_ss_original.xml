@@ -51,10 +51,10 @@
    <Tbase>0</Tbase>
   </phenoControl>
   <seneControl>
-   <senLeaf>2500</senLeaf>
-   <senStem>3000</senStem>
-   <senRoot>3500</senRoot>
-   <senRhizome>3500</senRhizome>
+   <senLeaf>3000</senLeaf>
+   <senStem>3500</senStem>
+   <senRoot>4000</senRoot>
+   <senRhizome>4000</senRhizome>
   </seneControl>
   <soilControl>
    <FieldC>-1</FieldC>
@@ -76,37 +76,37 @@
    <rsdf>0.44</rsdf>
   </soilControl>
   <phenoParms>
-   <tp1>1</tp1>
-   <tp2>2</tp2>
-   <tp3>3</tp3>
-   <tp4>490</tp4>
-   <tp5>790</tp5>
-   <tp6>990</tp6>
-   <kStem1>0.3793</kStem1>
-   <kLeaf1>0.3263</kLeaf1>
-   <kRoot1>0.2944</kRoot1>
-   <kRhizome1>1e-04</kRhizome1>
-   <kStem2>0.1599</kStem2>
-   <kLeaf2>0.3309</kLeaf2>
-   <kRoot2>0.5092</kRoot2>
-   <kRhizome2>1e-04</kRhizome2>
-   <kStem3>0.4589</kStem3>
-   <kLeaf3>0.3077</kLeaf3>
-   <kRoot3>0.2333</kRoot3>
-   <kRhizome3>1e-04</kRhizome3>
-   <kStem4>0.2592</kStem4>
-   <kLeaf4>0.6044</kLeaf4>
-   <kRoot4>0.1363</kRoot4>
-   <kRhizome4>1e-04</kRhizome4>
-   <kStem5>0.6578</kStem5>
-   <kLeaf5>0.1657</kLeaf5>
-   <kRoot5>0.1764</kRoot5>
-   <kRhizome5>1e-04</kRhizome5>
-   <kStem6>0.1762</kStem6>
-   <kLeaf6>0.1459</kLeaf6>
-   <kRoot6>0.0269</kRoot6>
-   <kRhizome6>1e-04</kRhizome6>
-   <kGrain6>0.6509</kGrain6>
+   <tp1>150</tp1>
+   <tp2>300</tp2>
+   <tp3>450</tp3>
+   <tp4>600</tp4>
+   <tp5>750</tp5>
+   <tp6>900</tp6>
+   <kStem1>0.07797131</kStem1>
+   <kLeaf1>0.4574688</kLeaf1>
+   <kRoot1>0.4645599</kRoot1>
+   <kRhizome1>0.00000001</kRhizome1>
+   <kStem2>0.3682341</kStem2>
+   <kLeaf2>0.3520679</kLeaf2>
+   <kRoot2>0.279698</kRoot2>
+   <kRhizome2>0.00000001</kRhizome2>
+   <kStem3>0.2998348</kStem3>
+   <kLeaf3>0.6848535</kLeaf3>
+   <kRoot3>0.01531178</kRoot3>
+   <kRhizome3>0.00000001</kRhizome3>
+   <kStem4>0.669772</kStem4>
+   <kLeaf4>0.2855325</kLeaf4>
+   <kRoot4>0.04469549</kRoot4>
+   <kRhizome4>0.00000001</kRhizome4>
+   <kStem5>0.1630056</kStem5>
+   <kLeaf5>0.8037141</kLeaf5>
+   <kRoot5>0.0332803</kRoot5>
+   <kRhizome5>0.00000001</kRhizome5>
+   <kStem6>0.7787245</kStem6>
+   <kLeaf6>0.02861919</kLeaf6>
+   <kRoot6>0.1399813</kRoot6>
+   <kRhizome6>0.00000001</kRhizome6>
+   <kGrain6>0.05267502</kGrain6>
   </phenoParms>
  </pft>
 </config>
