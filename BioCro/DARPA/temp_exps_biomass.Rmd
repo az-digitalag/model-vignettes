@@ -64,7 +64,7 @@ rm(biocro_result)
 load("temp_exps_results/temp_exps_results1/ensemble.ts.NOENSEMBLEID.TotLivBiom.2019.2019.Rdata")
 convert_biomass <- function(x) x / 0.4
 daily_biomass <- data.frame(timescale, t(ensemble.ts[["TotLivBiom"]])) %>% 
-  gather(ensemble, biomass, X1:X10) %>% 
+  gather(ensemble, biomass, X1:X100) %>% 
   mutate_at(vars(biomass), convert_biomass) %>% 
   filter(hour == 12) %>% 
   group_by(day) %>% 
@@ -87,6 +87,45 @@ ggplot(data = daily_biomass) +
   ylab("Total Biomass (kg/m2)") +
   xlim(c(0, 50)) +
   theme_classic()
+```
+
+Plot transpiration results.
+
+```{r}
+# Clean up transpiration estimates
+load('temp_exps_results/temp_exps_results1/out/SA-median/biocro_output.RData')
+timescale <- data.table(day = rep(biocro_result$doy, each = 24), hour = 0:23)
+rm(biocro_result)
+
+load("temp_exps_results/temp_exps_results1/ensemble.ts.NOENSEMBLEID.TVeg.2019.2019.Rdata")
+convert_transp <- function(x) ud.convert(x, "kg/m2/s", "kg/m2/h")
+daily_transp <- data.frame(timescale, t(ensemble.ts[["TVeg"]])) %>% 
+  gather(ensemble, transpiration, X1:X100) %>% 
+  mutate_at(vars(transpiration), convert_transp) %>% 
+  group_by(ensemble, day) %>% 
+  summarize(transpiration = sum(transpiration)) %>% 
+  group_by(day) %>% 
+  summarise(mean = mean(transpiration, na.rm = TRUE), 
+            median = median(transpiration, na.rm = TRUE), 
+            sd = sd(transpiration, na.rm = TRUE), 
+            lcl_50 = quantile(transpiration, probs = c(0.25), na.rm = TRUE), 
+            ucl_50 = quantile(transpiration, probs = c(0.75), na.rm = TRUE),
+            lcl_95 = quantile(transpiration, probs = c(0.025), na.rm = TRUE), 
+            ucl_95 = quantile(transpiration, probs = c(0.975), na.rm = TRUE))
+write.csv(daily_transp, "temp_exps_inputs1/transpiration_ests1.csv")
+rm(ensemble.ts)
+
+# Plot transpiration estimates
+plot_daily_transp <- ggplot(data = daily_transp) + 
+  geom_line(aes(day, y = median)) +
+  geom_ribbon(aes(day, ymin = lcl_95, ymax = ucl_95), alpha = 0.1) +
+  geom_ribbon(aes(day, ymin = lcl_50, ymax = ucl_50), alpha = 0.1) +
+  xlim(x = c(0, 50)) +
+  xlab("Day of Experiment") + 
+  ylab("Transpiration (kg/m2/day)") +
+  theme_classic() + 
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
+  theme(plot.margin=unit(c(-0.5, 1, 1, 1), "cm"))
 ```
 
 # Section 2: BioCro Run for Control Parameters & High Night Temperature Weather
@@ -127,7 +166,7 @@ rm(biocro_result)
 load("temp_exps_results/temp_exps_results2/ensemble.ts.NOENSEMBLEID.TotLivBiom.2019.2019.Rdata")
 convert_biomass <- function(x) x / 0.4
 daily_biomass <- data.frame(timescale, t(ensemble.ts[["TotLivBiom"]])) %>% 
-  gather(ensemble, biomass, X1:X10) %>% 
+  gather(ensemble, biomass, X1:X100) %>% 
   mutate_at(vars(biomass), convert_biomass) %>% 
   filter(hour == 12) %>% 
   group_by(day) %>% 
@@ -150,6 +189,45 @@ ggplot(data = daily_biomass) +
   ylab("Total Biomass (kg/m2)") +
   xlim(c(0, 50)) +
   theme_classic()
+```
+
+Plot transpiration results.
+
+```{r}
+# Clean up transpiration estimates
+load('temp_exps_results/temp_exps_results2/out/SA-median/biocro_output.RData')
+timescale <- data.table(day = rep(biocro_result$doy, each = 24), hour = 0:23)
+rm(biocro_result)
+
+load("temp_exps_results/temp_exps_results2/ensemble.ts.NOENSEMBLEID.TVeg.2019.2019.Rdata")
+convert_transp <- function(x) ud.convert(x, "kg/m2/s", "kg/m2/h")
+daily_transp <- data.frame(timescale, t(ensemble.ts[["TVeg"]])) %>% 
+  gather(ensemble, transpiration, X1:X100) %>% 
+  mutate_at(vars(transpiration), convert_transp) %>% 
+  group_by(ensemble, day) %>% 
+  summarize(transpiration = sum(transpiration)) %>% 
+  group_by(day) %>% 
+  summarise(mean = mean(transpiration, na.rm = TRUE), 
+            median = median(transpiration, na.rm = TRUE), 
+            sd = sd(transpiration, na.rm = TRUE), 
+            lcl_50 = quantile(transpiration, probs = c(0.25), na.rm = TRUE), 
+            ucl_50 = quantile(transpiration, probs = c(0.75), na.rm = TRUE),
+            lcl_95 = quantile(transpiration, probs = c(0.025), na.rm = TRUE), 
+            ucl_95 = quantile(transpiration, probs = c(0.975), na.rm = TRUE))
+write.csv(daily_transp, "temp_exps_inputs2/transpiration_ests2.csv")
+rm(ensemble.ts)
+
+# Plot transpiration estimates
+plot_daily_transp <- ggplot(data = daily_transp) + 
+  geom_line(aes(day, y = median)) +
+  geom_ribbon(aes(day, ymin = lcl_95, ymax = ucl_95), alpha = 0.1) +
+  geom_ribbon(aes(day, ymin = lcl_50, ymax = ucl_50), alpha = 0.1) +
+  xlim(x = c(0, 50)) +
+  xlab("Day of Experiment") + 
+  ylab("Transpiration (kg/m2/day)") +
+  theme_classic() + 
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
+  theme(plot.margin=unit(c(-0.5, 1, 1, 1), "cm"))
 ```
 
 # Section 3: BioCro Run for High Night Temperature Parameters & Weather
@@ -234,7 +312,7 @@ rm(biocro_result)
 load("temp_exps_results/temp_exps_results3/ensemble.ts.NOENSEMBLEID.TotLivBiom.2019.2019.Rdata") #these data are in kg/m2 carbon
 convert_biomass <- function(x) x / 0.4
 daily_biomass <- data.frame(timescale, t(ensemble.ts[["TotLivBiom"]])) %>% 
-  gather(ensemble, biomass, X1:X10) %>% 
+  gather(ensemble, biomass, X1:X100) %>% 
   mutate_at(vars(biomass), convert_biomass) %>% 
   filter(hour == 12) %>% 
   group_by(day) %>% 
@@ -276,22 +354,16 @@ convert_transp <- function(x) ud.convert(x, "kg/m2/s", "kg/m2/h")
 daily_transp <- data.frame(timescale, t(ensemble.ts[["TVeg"]])) %>% 
   gather(ensemble, transpiration, X1:X100) %>% 
   mutate_at(vars(transpiration), convert_transp) %>% 
-  group_by(day, hour) %>% 
+  group_by(ensemble, day) %>% 
+  summarize(transpiration = sum(transpiration)) %>% 
+  group_by(day) %>% 
   summarise(mean = mean(transpiration, na.rm = TRUE), 
             median = median(transpiration, na.rm = TRUE), 
             sd = sd(transpiration, na.rm = TRUE), 
             lcl_50 = quantile(transpiration, probs = c(0.25), na.rm = TRUE), 
             ucl_50 = quantile(transpiration, probs = c(0.75), na.rm = TRUE),
             lcl_95 = quantile(transpiration, probs = c(0.025), na.rm = TRUE), 
-            ucl_95 = quantile(transpiration, probs = c(0.975), na.rm = TRUE)) %>% 
-  group_by(day) %>% 
-  summarise(mean = sum(mean), 
-            median = sum(median), 
-            sd = sqrt(sum(sd^2)), 
-            lcl_50 = sum(lcl_50), 
-            ucl_50 = sum(ucl_50), 
-            lcl_95 = sum(lcl_95), 
-            ucl_95 = sum(ucl_95))
+            ucl_95 = quantile(transpiration, probs = c(0.975), na.rm = TRUE))
 write.csv(daily_transp, "temp_exps_inputs3/transpiration_ests3.csv")
 rm(ensemble.ts)
 
@@ -421,7 +493,7 @@ cowplot::plot_grid(cv, el, vd, nrow = 1, rel_widths = c(2, 1, 1))
 
 # Section 5: Plot Three Runs
 
-Code to plot the biomass estimates from the first two runs together, along with the control data. 
+Code to plot the biomass estimates from the all three runs together, along with the control data. 
 
 ```{r}
 # Read in and combine biomass measurements data
@@ -475,11 +547,40 @@ ggplot(data = biomass_ests) +
 ggplot(data = biomass_ests) +
   geom_line(aes(day, mean, color = `Inputs: parameters / weather`)) +
   geom_ribbon(aes(day, ymin = lcl_50, ymax = ucl_50, fill = `Inputs: parameters / weather`), alpha = 0.1) +
-  scale_color_manual(values=c("red", "purple", "orange", "red", "purple", "orange")) +
-  scale_fill_manual(values=c("red", "purple", "orange", "red", "purple", "orange")) +
+  scale_color_manual(values=c("#F1BB7B", "black", "#FD6467", "#F1BB7B", "black", "#FD6467")) +
+  scale_fill_manual(values=c("#F1BB7B", "black", "#FD6467", "#F1BB7B", "black", "#FD6467")) +
   lims(x = c(0, 60), y = c(0, 0.15)) +
   xlab("Day of Year") + 
   ylab("Total Biomass (kg/m2)") +
+  theme_classic()
+```
+
+Code to plot the transpiration estimates from the all three runs together, along with the control data. 
+
+```{r}
+# Read in and combine transpiration estimates data
+transpiration_ests1 <- read.csv("temp_exps_inputs1/transpiration_ests1.csv") %>% 
+  mutate(run = 1)
+transpiration_ests2 <- read.csv("temp_exps_inputs2/transpiration_ests2.csv") %>% 
+  mutate(run = 2)
+transpiration_ests3 <- read.csv("temp_exps_inputs3/transpiration_ests3.csv") %>% 
+  mutate(run = 3)
+
+transpiration_ests <- bind_rows(transpiration_ests1, transpiration_ests2, transpiration_ests3) %>% 
+  mutate(run = as.factor(run), 
+         `Inputs: parameters / weather` = case_when(run == "1" ~ "control / control", 
+                            run == "2" ~ "control / high night temp", 
+                            run == "3" ~ "high night temp / high night temp"))
+
+# Plot measured transpiration against transpiration estimates
+ggplot(data = transpiration_ests) +
+  geom_line(aes(day, mean, color = `Inputs: parameters / weather`)) +
+  geom_ribbon(aes(day, ymin = lcl_50, ymax = ucl_50, fill = `Inputs: parameters / weather`), alpha = 0.1) +
+  scale_color_manual(values=c("#F1BB7B", "black", "#FD6467", "#F1BB7B", "black", "#FD6467")) +
+  scale_fill_manual(values=c("#F1BB7B", "black", "#FD6467", "#F1BB7B", "black", "#FD6467")) +
+  lims(x = c(0, 60)) +
+  xlab("Day of Year") + 
+  ylab("Transpiration (kg/m2/day)") +
   theme_classic()
 ```
 
