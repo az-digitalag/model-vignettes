@@ -1,0 +1,326 @@
+---
+title: "Plot ED2 results"
+author: "Kristina Riemer, University of Arizona"
+output: github_document
+urlcolor: blue
+---
+
+### Read in libraries
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+```
+
+### Move most recent results to final folder
+```{r}
+date <- as.character(Sys.Date())
+
+results_path <- paste0("/home/kristinariemer/model-vignettes/ED2/results/", date)
+dir.create(results_path)
+file.copy("/data/tests/ed2/", results_path, recursive = TRUE)
+```
+
+### NPP time series
+
+```{r}
+days <- c(1:365)
+timescale <- data.table::data.table(day = rep(days, each = 24), hour = 0:23)
+
+load("/data/tests/ed2/ensemble.ts.NOENSEMBLEID.DBH.2004.2005.Rdata")
+daily_npp <- data.frame(timescale, t(ensemble.ts[["DBH"]])) %>%
+  gather(ensemble, npp, X1:X10) %>%
+  filter(hour == 12) %>%
+  group_by(day) %>%
+  summarise(mean = mean(npp, na.rm = TRUE),
+            median = median(npp, na.rm = TRUE),
+            sd = sd(npp, na.rm = TRUE),
+            lcl_50 = quantile(npp, probs = c(0.25), na.rm = TRUE),
+            ucl_50 = quantile(npp, probs = c(0.75), na.rm = TRUE),
+            lcl_95 = quantile(npp, probs = c(0.025), na.rm = TRUE),
+            ucl_95 = quantile(npp, probs = c(0.975), na.rm = TRUE)) %>% 
+    mutate(median = udunits2::ud.convert(median, "kg/m2/s", "kg/m2/yr"), 
+           lcl_50 = udunits2::ud.convert(lcl_50, "kg/m2/s", "kg/m2/yr"), 
+           ucl_50 = udunits2::ud.convert(ucl_50, "kg/m2/s", "kg/m2/yr"), 
+           lcl_95 = udunits2::ud.convert(lcl_95, "kg/m2/s", "kg/m2/yr"), 
+           ucl_95 = udunits2::ud.convert(ucl_95, "kg/m2/s", "kg/m2/yr"))
+
+npp_timeseries <- ggplot(data = daily_npp) +
+  geom_line(aes(day, y = median)) +
+  geom_ribbon(aes(day, ymin = lcl_95, ymax = ucl_95), alpha = 0.1) +
+  geom_ribbon(aes(day, ymin = lcl_50, ymax = ucl_50), alpha = 0.1) +
+  xlim(c(0, 100)) +
+  ylim(c(0, 5)) +
+  xlab("Day") +
+  ylab("NPP (kg/m2/yr)") +
+  theme_classic()
+```
+
+### NPP time series by PFT
+
+Setaria WT & C3 grass
+
+```{r}
+ensembles_npps <- c()
+for(ensemble in 1:100){ 
+  if(ensemble < 10){
+    ens_num <- paste0("00", ensemble)
+  } else if(ensemble >= 10 & ensemble < 100){
+    ens_num <- paste0("0", ensemble)
+  } else {
+    ens_num <- ensemble
+  }
+  ens_path <- paste0("/data/tests/ed2/out/ENS-00", ens_num, "-76")
+  #ens_path <- paste0(results_path, "/ed2/out/ENS-00", ens_num, "-76")
+  print(ens_path)
+  ens_e_files <- Sys.glob(file.path(ens_path, c("analysis-E-*", ".*h5")))
+  ensemble_npp <- c()
+  for(file in ens_e_files){
+    ens_month_file <- ncdf4::nc_open(file)
+    ens_month_npp <- ncdf4::ncvar_get(ens_month_file, "MMEAN_NPP_CO")
+    ens_month_nplant <- ncdf4::ncvar_get(ens_month_file, "NPLANT")
+    ens_month_total_npp <- ens_month_npp * ens_month_nplant
+    ens_month_pft <- ncdf4::ncvar_get(ens_month_file, "PFT")
+    ens_month_df <- data.frame(npp = ens_month_total_npp, pft = ens_month_pft) %>%
+      group_by(pft) %>%
+      summarize(npp = mean(npp)) %>%
+      mutate(date = substr(file, 45, 51),
+             ensemble = ensemble)
+    ensemble_npp <- bind_rows(ensemble_npp, ens_month_df)
+    ncdf4::nc_close(ens_month_file)
+  }
+  ensembles_npps <- bind_rows(ensembles_npps, ensemble_npp)
+}
+
+write.csv(ensembles_npps, paste0(results_path, "/ensemble_values.csv"), row.names = FALSE)
+
+npp_summary <- ensembles_npps %>% 
+  mutate(date = as.POSIXct(as.Date(paste0(date, "-01"))), 
+         pft = case_when(pft == 1 ~ "Setaria (triggered)", 
+                         pft == 9 ~ "Early succession trees", 
+                         pft == 10 ~ "Mid succession trees", 
+                         pft == 11 ~ "Late succession trees"), 
+         pft = as.factor(pft)) %>% 
+  group_by(pft, date) %>% 
+  summarize(mean = mean(npp, na.rm = TRUE),
+            median = median(npp, na.rm = TRUE),
+            sd = sd(npp, na.rm = TRUE),
+            lcl_50 = quantile(npp, probs = c(0.25), 
+                              na.rm = TRUE, names = FALSE),
+            ucl_50 = quantile(npp, probs = c(0.75), 
+                              na.rm = TRUE, names = FALSE),
+            lcl_95 = quantile(npp, probs = c(0.025), 
+                              na.rm = TRUE, names = FALSE),
+            ucl_95 = quantile(npp, probs = c(0.975), 
+                              na.rm = TRUE, names = FALSE)) %>% 
+  rename(Species = pft)
+
+npp_ci <- ggplot(data = npp_summary) +
+  geom_line(aes(x = date, y = median, color = Species)) +
+  #geom_ribbon(aes(date, ymin = lcl_95, ymax = ucl_95, fill = pft), alpha = 0.1) +
+  geom_ribbon(aes(date, ymin = lcl_50, ymax = ucl_50, fill = Species), alpha = 0.4) +
+  scale_x_datetime(labels = scales::date_format("%b")) +
+  xlab("Month") +
+  ylab("NPP (kgC/m2/yr)") +
+  theme_classic()
+
+npp_rel <- ggplot(npp_summary, aes(x = date, y = median, fill = Species)) +
+  geom_area() +
+  xlab("Month") +
+  ylab("NPP (kg/m2/yr)") +
+  theme_classic()
+
+ggsave(paste0(results_path, "/npp_ci.png"), npp_ci, width = 6, height = 3)
+ggsave(paste0(results_path, "/npp_rel.png"), npp_rel, width = 10, height = 4)
+```
+Three grasses
+
+```{r}
+ensembles_npps <- c()
+for(ensemble in 1:100){ 
+  ens_num <- ifelse(ensemble < 10, paste0(0, ensemble), ensemble)
+  ens_path <- paste0("/data/tests/ed2_threegrasses/out/ENS-000", ens_num, "-76")
+  ens_e_files <- Sys.glob(file.path(ens_path, c("analysis-E-*", ".*h5")))
+  ensemble_npp <- c()
+  for(file in ens_e_files){
+    ens_month_file <- ncdf4::nc_open(file)
+    ens_month_npp <- ncdf4::ncvar_get(ens_month_file, "MMEAN_NPP_CO")
+    ens_month_nplant <- ncdf4::ncvar_get(ens_month_file, "NPLANT")
+    ens_month_total_npp <- ens_month_npp * ens_month_nplant
+    ens_month_pft <- ncdf4::ncvar_get(ens_month_file, "PFT")
+    ens_month_df <- data.frame(npp = ens_month_total_npp, pft = ens_month_pft) %>% 
+      group_by(pft) %>% 
+      summarize(npp = mean(npp)) %>% 
+      mutate(date = substr(file, 58, 64), 
+             ensemble = ensemble)
+    ensemble_npp <- bind_rows(ensemble_npp, ens_month_df)
+    ncdf4::nc_close(ens_month_file)
+  }
+  ensembles_npps <- bind_rows(ensembles_npps, ensemble_npp)
+}
+
+npp_summary <- ensembles_npps %>% 
+  mutate(date = as.Date(paste0(date, "-01")), 
+         pft = case_when(pft == 1 ~ "SetariaWT", 
+                         pft == 5 ~ "ebifarm.C3grass"), 
+         pft = as.factor(pft)) %>% 
+  group_by(pft, date) %>% 
+  summarize(mean = mean(npp, na.rm = TRUE),
+            median = median(npp, na.rm = TRUE),
+            sd = sd(npp, na.rm = TRUE),
+            lcl_50 = quantile(npp, probs = c(0.25), 
+                              na.rm = TRUE, names = FALSE),
+            ucl_50 = quantile(npp, probs = c(0.75), 
+                              na.rm = TRUE, names = FALSE),
+            lcl_95 = quantile(npp, probs = c(0.025), 
+                              na.rm = TRUE, names = FALSE),
+            ucl_95 = quantile(npp, probs = c(0.975), 
+                              na.rm = TRUE, names = FALSE))
+
+ggplot(data = npp_summary) +
+  geom_line(aes(x = date, y = median, color = pft)) +
+  geom_ribbon(aes(date, ymin = lcl_95, ymax = ucl_95, fill = pft), alpha = 0.1) +
+  geom_ribbon(aes(date, ymin = lcl_50, ymax = ucl_50, fill = pft), alpha = 0.4) +
+  xlab("Month") +
+  ylab("NPP (kgC/m2/yr)") +
+  theme_classic()
+
+ggplot(npp_summary, aes(x = date, y = median, fill = pft)) +
+  geom_area() +
+  xlab("Month") +
+  ylab("NPP (kgC/m2/yr)") +
+  theme_classic()
+```
+
+
+### DBH time series
+
+Plot from Pecan .nc files for multiple PFTs. Can't use because DBH doesn't mean anything for grasses: https://github.com/EDmodel/ED2/blob/8dcc92a5b3c8c3cbab5fc3ded7e02558385e1ca7/ED/src/utils/allometry.f90#L452
+
+```{r}
+ensemble_dbhs <- c()
+for(ensemble in 1:10){
+  ens_path <- ifelse(ensemble < 10, paste0(0, ensemble), ensemble)
+  ens_path_2004 <- paste0("/data/tests/ed2/out/ENS-000", ens_path, "-76/2004.nc")
+  ens_nc_2004 <- ncdf4::nc_open(ens_path_2004)
+  ens_dbh_2004 <- data.frame(ncdf4::ncvar_get(ens_nc_2004, "DBH"))
+  ens_dbh_2004$ensemble <- ensemble
+  ens_dbh_2004$date <- as.Date(c("2004-07-01", "2004-08-01", "2004-09-01", "2004-10-01", "2004-11-01", "2004-12-01"))
+  ens_dbh_2004 <- rename(ens_dbh_2004, SetariaWT = X1, ebifarm.C3grass = X2)
+  ncdf4::nc_close(ens_nc_2004)
+  ensemble_dbhs <- bind_rows(ensemble_dbhs, ens_dbh_2004)
+  ens_path_2005 <- paste0("/data/tests/ed2/out/ENS-000", ens_path, "-76/2005.nc")
+  ens_nc_2005 <- ncdf4::nc_open(ens_path_2005)
+  ens_dbh_2005 <- data.frame(ncdf4::ncvar_get(ens_nc_2005, "DBH"))
+  ens_dbh_2005$ensemble <- ensemble
+  ens_dbh_2005$date <- as.Date(c("2005-01-01", "2005-02-01", "2005-03-01", "2005-04-01", "2005-05-01"))
+  ens_dbh_2005 <- rename(ens_dbh_2005, SetariaWT = X1, ebifarm.C3grass = X2)
+  ncdf4::nc_close(ens_nc_2005)
+  ensemble_dbhs <- bind_rows(ensemble_dbhs, ens_dbh_2005)
+}
+
+dbhs_plot <- ensemble_dbhs %>% 
+  relocate(ensemble, date, SetariaWT, ebifarm.C3grass) %>% 
+  pivot_longer(cols = c(SetariaWT, ebifarm.C3grass), names_to = "PFT", 
+               values_to = "DBH") %>% 
+  mutate(ensemble = as.factor(ensemble))
+
+ggplot(dbhs_plot, aes(x = date, y = DBH, color = ensemble)) +
+  geom_line() +
+  facet_wrap(~PFT)
+
+dbhs_summary_plot <- dbhs_plot %>% 
+  group_by(PFT, date) %>%
+  summarise(mean = mean(DBH, na.rm = TRUE),
+            median = median(DBH, na.rm = TRUE),
+            sd = sd(DBH, na.rm = TRUE),
+            lcl_50 = quantile(DBH, probs = c(0.25), na.rm = TRUE),
+            ucl_50 = quantile(DBH, probs = c(0.75), na.rm = TRUE),
+            lcl_95 = quantile(DBH, probs = c(0.025), na.rm = TRUE),
+            ucl_95 = quantile(DBH, probs = c(0.975), na.rm = TRUE))
+
+ggplot(data = dbhs_summary_plot) +
+  geom_line(aes(date, y = median, color = PFT)) +
+  geom_ribbon(aes(date, ymin = lcl_95, ymax = ucl_95, fill = PFT), alpha = 0.1) +
+  geom_ribbon(aes(date, ymin = lcl_50, ymax = ucl_50, fill = PFT), alpha = 0.4) +
+  xlab("Month") +
+  ylab("DBH (cm)") +
+  theme_classic()
+
+ggplot(data = dbhs_summary_plot) +
+  geom_line(aes(date, y = median)) +
+  geom_ribbon(aes(date, ymin = lcl_95, ymax = ucl_95), alpha = 0.1) +
+  geom_ribbon(aes(date, ymin = lcl_50, ymax = ucl_50), alpha = 0.4) +
+  xlab("Month") +
+  ylab("DBH (cm)") +
+  theme_classic() +
+  facet_grid(rows = vars(PFT))
+
+a <- 2                        
+b <- 0.3
+biomass_median <- dbhs_plot %>% 
+  mutate(biomass = 10 ^ (a + b*log10(DBH))) %>% 
+  group_by(PFT, date) %>% 
+  summarize(median = median(biomass))
+
+ggplot(biomass_median, aes(x = date, y = median, fill = PFT)) +
+  geom_bar(position = "fill", stat = "identity") +
+  xlab("Month") +
+  ylab("Proportion of total biomass") +
+  theme_classic()
+```
+
+### SA/VD
+
+```{r}
+load(paste0(results_path, "/ed2/sensitivity.results.NOENSEMBLEID.NPP.2004.2005.Rdata"))
+
+for(pft in names(sensitivity.results)){
+  sa_df1 <- sensitivity.results[[pft]]$variance.decomposition.output
+  sa_df2 <- data.frame(trait = names(sa_df1$coef.vars), data.frame(sa_df1))
+  sa_df3 <- sa_df2 %>%
+    mutate(trait.labels = factor(as.character(PEcAn.utils::trait.lookup(trait)$figid)),
+           units = PEcAn.utils::trait.lookup(trait)$units,
+           coef.vars = coef.vars * 100,
+           sd = sqrt(variances)) %>% 
+    filter(trait != "water_conductance")
+  
+  fontsize = list(title = 18, axis = 14)
+  theme_set(theme_minimal() +
+              theme(axis.text.x = element_text(size = fontsize$axis,
+                                               vjust = -1),
+                    axis.text.y = element_blank(),
+                    axis.ticks = element_blank(),
+                    axis.line = element_blank(),
+                    axis.title.x = element_blank(),
+                    axis.title.y = element_blank(),
+                    panel.grid.minor = element_blank(),
+                    panel.border = element_blank()))
+  
+  cv <- ggplot(data = sa_df3) +
+    geom_pointrange(aes(x = trait.labels, y = coef.vars, ymin = 0, ymax = coef.vars), alpha = 0.5, size = 1.25, position = position_dodge(width = c(-0.4))) +
+    coord_flip() +
+    ggtitle("CV %") +
+    geom_hline(aes(yintercept = 0), size = 0.1) +
+    theme(axis.text.y = element_text(color = 'black', hjust = 1, size = fontsize$axis))
+  
+  el <- ggplot(data = sa_df3) +
+    geom_pointrange(aes(x = trait.labels, y = elasticities, ymin = 0, ymax = elasticities), alpha = 0.5, size = 1.25, position = position_dodge(width = c(-0.4))) +
+    coord_flip() +
+    ggtitle("Elasticity") +
+    geom_hline(aes(yintercept = 0), size = 0.1) +
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  vd <- ggplot(data = sa_df3) +
+    geom_pointrange(aes(x = trait.labels, y = sd, ymin = 0, ymax = sd), alpha = 0.5, size = 1.25, position = position_dodge(width = c(-0.4))) +
+    coord_flip() +
+    ggtitle("Variance Explained") +
+    geom_hline(aes(yintercept = 0), size = 0.1) +
+    scale_y_continuous(breaks = pretty(sa_df3$sd, n = 3))
+  
+  npp_savd <- cowplot::plot_grid(cv, el, vd, nrow = 1, rel_widths = c(2, 1, 1))
+  ggsave(paste0(results_path, "/npp_savd_", pft, ".png"), npp_savd, 
+         width = 15, height = 4)
+}
+```

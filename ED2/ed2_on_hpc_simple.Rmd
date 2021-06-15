@@ -1,0 +1,212 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+### Outcome/scope
+
+Audience: collaborators on Sentinel project 
+Purpose: replicate and understand simulation of Setaria wild type in a community of C3 grass using ED2
+
+### Prerequisites
+
+These are necessary but not detailed here: 
+- account on Welsch
+- account on CyVerse
+- UA NetID
+- University of Arizona HPC account
+- clone of model-vignettes repo in Welsch account
+
+### Set up pecan.xml
+
+This file specifies the inputs for the run. The version of the file for this vignette should exist locally at `~/model-vignettes/ED2/pecan.docker.ed2.simple.xml`. 
+
+Simple case inputs: 
+
+- ED2 version 2.2
+- PFTs Setaria wild type and ebifarm C3 grass
+- Site is ebifarm
+- 10 ensemble runs and +/- 1 SD sensitivity analysis
+- Outputs written to `/data/tests/ed2`
+- Model runs results on HPC in `/groups/dlebauer/ed2_results/pecan_remote`
+- Takes ~1 hour w/ 24 cores on one node (walltime is 2 hours just in case)
+
+### Set up HPC
+
+Briefly, steps to prepare HPC include modifying pecan.xml `host` section (which has already been done in `pecan.docker.ed2.simple.xml` for this use case), creating two tunnels between Welsch and UA HPC, ED2 files need to be copied to HPC account, and PEcAn `modellauncher` needs to be compiled on HPC. These steps only need to be done once. 
+
+For more details, see `infrastructure/UA_HPC_runs.md` in the model-vignettes repo. 
+
+### Run workflow
+
+Read in libraries. 
+
+TODO: time entire thing
+
+```{r}
+library(PEcAn.all)
+library(PEcAn.utils)
+library(RCurl)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+```
+
+Set up settings file using pecan.xml and do meta-analysis. 
+
+use `/home/kristinariemer/model-vignettes/ED2/pecan.docker.ed2.simple.xml` to execute
+```{r}
+settings <- PEcAn.settings::read.settings("~/model-vignettes/ED2/pecan.docker.ed2.simple.xml") 
+settings <- PEcAn.settings::prepare.settings(settings, force = FALSE)
+PEcAn.settings::write.settings(settings, outputfile = "pecan.CHECKED.xml")
+settings <- PEcAn.workflow::do_conversions(settings)
+settings <- PEcAn.workflow::runModule.get.trait.data(settings)
+PEcAn.MA::runModule.run.meta.analysis(settings)
+settings <- PEcAn.workflow::runModule.run.write.configs(settings)
+```
+
+Copy run files to HPC, do model runs, then copy back. (do rsync steps manually due to problems with automated rsync)
+TODO: automate filling of date from settings (workflow/id)
+
+```{r}
+DATE <- settings$workflow$id
+```
+
+```{bash}
+rsync '-a' '-q' '--delete' '/data/tests/ed2/run' 'kristinariemer@login.ocelote.hpc.arizona.edu:/groups/dlebauer/ed2_results/pecan_remote/DATE'
+```
+
+```{r}
+ptm <- proc.time()
+PEcAn.remote::runModule.start.model.runs(settings, stop.on.error = FALSE)
+proc.time() - ptm
+```
+
+```{bash}
+rsync '-az' '-q' 'kristinariemer@login.ocelote.hpc.arizona.edu:/groups/dlebauer/ed2_results/pecan_remote/DATE/out' '/data/tests/ed2'
+```
+
+Do PEcAn post-processing steps. 
+
+```{r}
+for(folder in list.dirs("/data/tests/ed2/out", recursive = FALSE)){
+  model2netcdf.ED2(folder, settings$run$site$lat, settings$run$site$lon, settings$run$start.date, 
+                   settings$run$end.date, unlist(purrr::map(settings$pfts, 1)))
+  
+}
+
+runModule.get.results(settings)
+runModule.run.ensemble.analysis(settings, TRUE)
+runModule.run.sensitivity.analysis(settings)
+```
+
+### Get plots w/ postprocessing
+
+```{r}
+ensembles_npps <- c()
+for(ensemble in 1:100){ 
+  if(ensemble < 10){
+    ens_num <- paste0("00", ensemble)
+  } else if(ensemble >= 10 & ensemble < 100){
+    ens_num <- paste0("0", ensemble)
+  } else {
+    ens_num <- ensemble
+  }
+  ens_path <- paste0("/data/tests/ed2/out/ENS-00", ens_num, "-76")
+  print(ens_path)
+  ens_e_files <- Sys.glob(file.path(ens_path, c("analysis-E-*", ".*h5")))
+  ensemble_npp <- c()
+  for(file in ens_e_files){
+    ens_month_file <- ncdf4::nc_open(file)
+    ens_month_npp <- ncdf4::ncvar_get(ens_month_file, "MMEAN_NPP_CO")
+    ens_month_nplant <- ncdf4::ncvar_get(ens_month_file, "NPLANT")
+    ens_month_total_npp <- ens_month_npp * ens_month_nplant
+    ens_month_pft <- ncdf4::ncvar_get(ens_month_file, "PFT")
+    ens_month_df <- data.frame(npp = ens_month_total_npp, pft = ens_month_pft) %>%
+      group_by(pft) %>%
+      summarize(npp = mean(npp)) %>%
+      mutate(date = substr(file, 45, 51),
+             ensemble = ensemble)
+    ensemble_npp <- bind_rows(ensemble_npp, ens_month_df)
+    ncdf4::nc_close(ens_month_file)
+  }
+  ensembles_npps <- bind_rows(ensembles_npps, ensemble_npp)
+}
+
+npp_summary <- ensembles_npps %>% 
+  mutate(date = as.POSIXct(as.Date(paste0(date, "-01"))), 
+         pft = case_when(pft == 1 ~ "Setaria (wild type)", 
+                         pft == 5 ~ "C3 grass"), 
+         pft = as.factor(pft)) %>% 
+  group_by(pft, date) %>% 
+  summarize(mean = mean(npp, na.rm = TRUE),
+            median = median(npp, na.rm = TRUE),
+            sd = sd(npp, na.rm = TRUE),
+            lcl_50 = quantile(npp, probs = c(0.25), 
+                              na.rm = TRUE, names = FALSE),
+            ucl_50 = quantile(npp, probs = c(0.75), 
+                              na.rm = TRUE, names = FALSE),
+            lcl_95 = quantile(npp, probs = c(0.025), 
+                              na.rm = TRUE, names = FALSE),
+            ucl_95 = quantile(npp, probs = c(0.975), 
+                              na.rm = TRUE, names = FALSE)) %>% 
+  rename(Species = pft)
+
+ggplot(data = npp_summary) +
+  geom_line(aes(x = date, y = median, color = Species)) +
+  geom_ribbon(aes(date, ymin = lcl_50, ymax = ucl_50, fill = Species), alpha = 0.4) +
+  scale_x_datetime(labels = scales::date_format("%b")) +
+  xlab("Month") +
+  ylab("NPP (kgC/m2/yr)") +
+  theme_classic()
+```
+
+```{r}
+load("/data/tests/ed2/sensitivity.results.NOENSEMBLEID.NPP.2004.2004.Rdata")
+
+for(pft in names(sensitivity.results)){
+  sa_df1 <- sensitivity.results[[pft]]$variance.decomposition.output
+  sa_df2 <- data.frame(trait = names(sa_df1$coef.vars), data.frame(sa_df1))
+  sa_df3 <- sa_df2 %>%
+    mutate(trait.labels = factor(as.character(PEcAn.utils::trait.lookup(trait)$figid)),
+           units = PEcAn.utils::trait.lookup(trait)$units,
+           coef.vars = coef.vars * 100,
+           sd = sqrt(variances)) %>% 
+    filter(trait != "water_conductance")
+  
+  fontsize = list(title = 18, axis = 14)
+  theme_set(theme_minimal() +
+              theme(axis.text.x = element_text(size = fontsize$axis,
+                                               vjust = -1),
+                    axis.text.y = element_blank(),
+                    axis.ticks = element_blank(),
+                    axis.line = element_blank(),
+                    axis.title.x = element_blank(),
+                    axis.title.y = element_blank(),
+                    panel.grid.minor = element_blank(),
+                    panel.border = element_blank()))
+  
+  cv <- ggplot(data = sa_df3) +
+    geom_pointrange(aes(x = trait.labels, y = coef.vars, ymin = 0, ymax = coef.vars), alpha = 0.5, size = 1.25, position = position_dodge(width = c(-0.4))) +
+    coord_flip() +
+    ggtitle("CV %") +
+    geom_hline(aes(yintercept = 0), size = 0.1) +
+    theme(axis.text.y = element_text(color = 'black', hjust = 1, size = fontsize$axis))
+  
+  el <- ggplot(data = sa_df3) +
+    geom_pointrange(aes(x = trait.labels, y = elasticities, ymin = 0, ymax = elasticities), alpha = 0.5, size = 1.25, position = position_dodge(width = c(-0.4))) +
+    coord_flip() +
+    ggtitle("Elasticity") +
+    geom_hline(aes(yintercept = 0), size = 0.1) +
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  vd <- ggplot(data = sa_df3) +
+    geom_pointrange(aes(x = trait.labels, y = sd, ymin = 0, ymax = sd), alpha = 0.5, size = 1.25, position = position_dodge(width = c(-0.4))) +
+    coord_flip() +
+    ggtitle("Variance Explained") +
+    geom_hline(aes(yintercept = 0), size = 0.1) +
+    scale_y_continuous(breaks = pretty(sa_df3$sd, n = 3))
+  
+  print(cowplot::plot_grid(cv, el, vd, nrow = 1, rel_widths = c(2, 1, 1)))
+}
+```
